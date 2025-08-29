@@ -1,20 +1,30 @@
+# app/keyboards.py
 from datetime import datetime, timedelta, date
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+
 from app.config import UZ_TZ
-from app.constants import BTN_BOOK, BTN_MY, BTN_SERVICES, BTN_SUPPORT
+from app.constants import (
+    BTN_BOOK,
+    BTN_MY,
+    BTN_SERVICES,
+    BTN_SUPPORT,
+    BTN_SPECIAL_SERVICE,
+)
 
 def main_menu() -> ReplyKeyboardMarkup:
+    # Added the special service button as its own row
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_BOOK), KeyboardButton(text=BTN_MY)],
             [KeyboardButton(text=BTN_SERVICES), KeyboardButton(text=BTN_SUPPORT)],
+            [KeyboardButton(text=BTN_SPECIAL_SERVICE)],
         ],
         resize_keyboard=True,
     )
 
-def is_forbidden_date(d) -> bool:
-    # Dam olish kunlari
-    if d.weekday() in (5, 6):  # 5=Shanba, 6=Yakshanba
+def is_forbidden_date(d: date) -> bool:
+    # Dam olish kunlari: 5=Shanba, 6=Yakshanba
+    if d.weekday() in (5, 6):
         return True
     # 1-sentabr (har yil)
     if d.month == 9 and d.day == 1:

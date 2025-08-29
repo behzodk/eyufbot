@@ -30,10 +30,12 @@ async def available_services(m: Message):
         return
 
     # Javob matnini tuzish
-    lines = ["📋 *Mavjud xizmatlar*"]
+    lines = []
     for s in services:
         name = s.get("name", "Xizmat")
         dur = s.get("duration_min")
+        if name == "Moliyaviy kafillik xati":
+            continue
         if isinstance(dur, int):
             lines.append(f"• {name} — ~{dur} daqiqa")
         else:
@@ -41,17 +43,6 @@ async def available_services(m: Message):
 
     lines += [
         "",
-        "🧭 *Tartib (bosqichlar)*",
-        "1) *Birlamchi hujjatlar*ni topshirish:",
-        "   • Pasport nusxasi",
-        "   • Xorijga chiqish pasporti nusxasi",
-        "   • Surat",
-        "   • Moliyaviy homiydan xat",
-        "   • Qaytgandan keyin ish beruvchi homiydan xat",
-        "   • Qabul xati (universitetdan)",
-        "2) *Moliyaviy kafolat xati*ga murojaat qilish",
-        "3) *Viza*ga murojaat qilish",
-        "4) Viza olingandan so‘ng: *4 tomonlama shartnoma*",
         "",
         "ℹ️ Uchrashuvga yozilish uchun *Navbat olish* tugmasidan foydalaning.",
     ]

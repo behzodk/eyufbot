@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command  # <-- for /all
 
 from app.config import UZ_TZ, sb
-from app.constants import BTN_BOOK, BTN_MY  # Uzbek button labels
+from app.constants import BTN_BOOK, BTN_MY, BTN_SPECIAL_SERVICE  # Uzbek button labels
 from app.db import (
     is_registered_sync, fetch_services_sync, get_service_sync,
     fetch_bookings_for_day_sync, create_booking_sync, get_user_record_sync
@@ -114,6 +114,25 @@ async def _safe_edit_day_screen(message, text_md: str, kb):
 # =========================
 # ===== USER HANDLERS =====
 # =========================
+
+@router.message(F.text == BTN_SPECIAL_SERVICE)
+async def special_service_entry(m: Message, state: FSMContext):
+    # jump straight into the special ZIP flow
+    await state.set_state(BookingFlow.uploading_zip)
+    await state.update_data(svc_id=SPECIAL_SERVICE_ID)
+    await m.answer(
+        "Jamg'armaga kelish shart emas\n\n"
+        "Xizmat: *Moliyaviy kafillik xati*\n\n"
+        "Iltimos, quyidagi hujjatlarni *bitta ZIP faylga* joylab yuboring:\n"
+        "• Fuqarolik pasporti nusxasi\n"
+        "• Xalqaro (qizil) pasport nusxasi\n"
+        "• Qabul xati (Acceptance letter)\n\n"
+        "ZIP faylni yuborganingizdan so‘ng, biz faylni qabul qilib, "
+        "u bilan bog‘liq jarayonni boshlaymiz. Tayyor bo‘lgach, natijani elektron pochtangizga yuboramiz.",
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
+
 @router.message(F.text == BTN_BOOK)
 async def book_appointment(m: Message, state: FSMContext):
     if not await is_registered(m.from_user.id):
@@ -125,48 +144,63 @@ async def book_appointment(m: Message, state: FSMContext):
         await m.answer("Iltimos, /start orqali ro‘yxatdan o‘ting.")
         return
 
-    # Gate: faqat bitta faol navbat
+    services = await fetch_services()
+    if not services:
+        await m.answer("Hozircha xizmatlar sozlanmagan.")
+        return
+
+    # Gate: faqat bitta faol navbat — LEKIN maxsus xizmat (onlayn) doim ruxsat
     active = await has_active_booking(user["id"])
     if active:
-        svc = await get_service(active["service_id"])
+        # Faol navbat detali
+        svc_active = await get_service(active["service_id"])
         s = datetime.fromisoformat(active["start_at"]).astimezone(UZ_TZ).strftime("%Y-%m-%d %H:%M")
         e = datetime.fromisoformat(active["end_at"]).astimezone(UZ_TZ).strftime("%H:%M")
-        nm = svc["name"] if svc else "Xizmat"
+        nm = svc_active["name"] if svc_active else "Xizmat"
+
+        # 1) Faol navbat haqida xabar + bekor qilish tugmasi
         await m.answer(
-            "Sizda allaqachon faol navbat bor. Yangi navbat olishdan oldin uni yakunlang yoki bekor qiling.\n\n"
+            "Sizda allaqachon faol navbat bor. Agar kerak bo‘lsa, uni bekor qilishingiz mumkin.\n\n"
             f"• {s}–{e} — {nm} ({active['status']})",
             reply_markup=cancel_kb(active["id"])
         )
+
+        # 2) Shunga qaramay, MAXSUS onlayn xizmatni taklif qilamiz
+        special = next((x for x in services if x.get("id") == SPECIAL_SERVICE_ID or (x.get("name") or "").strip() == SPECIAL_SERVICE_NAME), None)
+        if special:
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=f"{special['name']} (onlayn) — ZIP yuborish", callback_data=f"book:svc:{special['id']}")]
+                ]
+            )
+            await state.set_state(BookingFlow.picking_service)
+            await m.answer(
+                "Faol navbatingiz bo‘lsa ham, quyidagi onlayn xizmatdan foydalanishingiz mumkin:",
+                reply_markup=kb,
+                disable_web_page_preview=True,
+            )
+        else:
+            await m.answer("Maxsus onlayn xizmat hozircha mavjud emas.")
         return
 
-    procedure = (
-        "Tartib:\n"
-        "1) Avval *Birlamchi hujjatlar* topshiring:\n"
-        "   • Pasport nusxasi\n"
-        "   • Xalqaro pasport nusxasi\n"
-        "   • Surat (photo)\n"
-        "   • Moliyaviy homiydan xat\n"
-        "   • Qaytgach ish beruvchi homiydan kafolat xati\n"
-        "   • Qabul xati (Acceptance letter)\n"
-        "2) Shundan so‘ng *Moliyaviy kafolat xati* uchun murojaat qiling.\n"
-        "3) So‘ng *Viza* uchun murojaat qilinadi.\n"
-        "4) Viza olingach, *4 tomonlama shartnoma* uchun tashrif buyuriladi.\n\n"
-        "_Eslatma: dam olish kunlari va 1-sentabr uchun navbat yo‘q._\n\n"
-        "Xizmatni tanlang:"
-    )
-    services = await fetch_services()
-    if not services:
-        await m.answer(procedure + "\n\n(Hozircha xizmatlar sozlanmagan.)", parse_mode="Markdown")
+    # Hech qanday faol navbat yo‘q — faqat oddiy xizmatlarni ko‘rsatamiz (SPECIAL chiqarib tashlanadi)
+    visible_services = [
+        s for s in services
+        if not (s.get("id") == SPECIAL_SERVICE_ID or (s.get("name") or "").strip() == SPECIAL_SERVICE_NAME)
+    ]
+
+    if not visible_services:
+        await m.answer("Hozircha navbat bilan band qilinadigan xizmatlar yo‘q.")
         return
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=f"{s['name']} (~{s.get('duration_min','?')} daqiqa)", callback_data=f"book:svc:{s['id']}")]
-            for s in services
+            for s in visible_services
         ]
     )
     await state.set_state(BookingFlow.picking_service)
-    await m.answer(procedure, parse_mode="Markdown", reply_markup=kb, disable_web_page_preview=True)
+    await m.answer("Xizmatni tanlang:", reply_markup=kb, disable_web_page_preview=True)
 
 @router.callback_query(F.data.startswith("book:cancel:"))
 async def cancel_active_booking(cq: CallbackQuery):
@@ -206,6 +240,17 @@ async def pick_service(cq: CallbackQuery, state: FSMContext):
     svc = await get_service(svc_id)
     if not svc:
         await cq.answer("Xizmat topilmadi.", show_alert=True)
+        return
+
+    # Faol navbat bo‘lsa, faqat MAXSUS onlayn xizmatga ruxsat beramiz
+    user = await get_user_record(cq.from_user.id)
+    if user:
+        active = await has_active_booking(user["id"])
+    else:
+        active = None
+
+    if active and not (svc_id == SPECIAL_SERVICE_ID or (svc.get("name") or "").strip() == SPECIAL_SERVICE_NAME):
+        await cq.answer("Sizda faol navbat bor. Hozir faqat ‘Moliyaviy kafillik xati’ (onlayn) xizmatidan foydalanishingiz mumkin.", show_alert=True)
         return
 
     # ---- SPECIAL BRANCH: Moliyaviy kafillik xati → ZIP so'raymiz, vaqt tanlash emas
@@ -419,7 +464,7 @@ async def pick_time(cq: CallbackQuery, state: FSMContext):
         await cq.answer("Iltimos, /start orqali ro‘yxatdan o‘ting.", show_alert=True)
         return
 
-    # Yakuniy darajada: faqat bitta faol navbat
+    # Yakuniy darajada: faqat bitta faol navbat (bu branch faqat oddiy xizmatlar uchun)
     active = await has_active_booking(user["id"])
     if active:
         svc_active = await get_service(active["service_id"])
