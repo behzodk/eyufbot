@@ -12,6 +12,8 @@ from app.states import Reg
 from app.utils import EMAIL_RE, normalize_phone
 from app.whitelist import load_award_map, best_match_90, suggestion_names
 from app.constants import BTN_BOOK, BTN_MY, BTN_SERVICES, BTN_SUPPORT
+from app.keyboards import admin_main_menu
+from app.handlers.admin import ADMIN_IDS
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -33,6 +35,14 @@ async def register_user(uid: int, full_name: str, phone: str, email: str, countr
 
 @router.message(CommandStart())
 async def start(m: Message, state: FSMContext):
+    if m.from_user.id in ADMIN_IDS:
+        # Admins cannot/should not register
+        await state.clear()
+        await m.answer(
+            "Assalomu alaykum, administrator! Quyidagi boshqaruv menyusidan foydalaning:",
+            reply_markup=admin_main_menu()
+        )
+        return
     if await is_registered(m.from_user.id):
         await state.clear()
         await m.answer("Siz allaqachon ro‘yxatdan o‘tgansiz. ✅", reply_markup=main_menu())

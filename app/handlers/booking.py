@@ -34,7 +34,8 @@ ADMIN_IDS = [
     6309016726,
     12302511,
     1069519989,
-    840667441
+    840667441,
+    2094323731
 ]
 
 # --- SPECIAL SERVICE (skip time flow → require zip upload) ---
